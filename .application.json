@@ -1,0 +1,10 @@
+{
+    "DeploymentMethod": "lambda",
+    "Functions": {
+        "guardianbrothers": {
+            "PhysicalId": {
+                "us-east-2": "guardianbrothers"
+            }
+        }
+    }
+}
