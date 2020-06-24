@@ -57,8 +57,9 @@ exports.handler = async(event) => {
         });
         response2 = await response2.json();
         console.log(response2);
+        let shares_outstanding = await pool.query("SELECT value FROM configuration WHERE id='shares_outstanding'");
         try {
-            let response3 = await pool.query('INSERT INTO liquidation_value(value) VALUES($1) RETURNING *', [response2.securitiesAccount.currentBalances.liquidationValue]);
+            let response3 = await pool.query('INSERT INTO liquidation_value(value, shares) VALUES($1, $2) RETURNING *', [response2.securitiesAccount.currentBalances.liquidationValue, parseFloat(shares_outstanding.rows[0].value)]);
             return { statusCode: 200, body: JSON.stringify(response3.rows), headers: { 'Access-Control-Allow-Origin': '*' } };
         }
         catch (err) {
@@ -68,5 +69,15 @@ exports.handler = async(event) => {
     }
     else if (event.path === '/auth') {
         return { statusCode: 302, headers: { Location: process.env.auth_uri } };
+    }
+    else if (event.path === '/stats') {
+        try {
+            let response = await pool.query('SELECT * FROM liquidation_value ORDER BY id DESC');
+            return { statusCode: 200, body: JSON.stringify(response.rows), headers: { 'Access-Control-Allow-Origin': '*' } };
+        }
+        catch (err) {
+            console.log(err);
+            return { statusCode: 400, body: "there was an error", headers: { 'Access-Control-Allow-Origin': '*' } };
+        }
     }
 };
