@@ -80,4 +80,24 @@ exports.handler = async(event) => {
             return { statusCode: 400, body: "there was an error", headers: { 'Access-Control-Allow-Origin': '*' } };
         }
     }
+    else if (event.path === '/update') {
+        if (event.queryStringParameters) {
+            if (event.queryStringParameters.shares) {
+                try {
+                    await pool.query("UPDATE configuration SET value = $1 WHERE id = 'shares_outstanding'", [event.queryStringParameters.shares]);
+                    return { statusCode: 200, body: `Shares outstanding updated to ${event.queryStringParameters.shares}`, headers: { 'Access-Control-Allow-Origin': '*' } };
+                }
+                catch (err) {
+                    console.log(err);
+                    return { statusCode: 400, body: "there was an error", headers: { 'Access-Control-Allow-Origin': '*' } };
+                }
+            }
+            else {
+                return { statusCode: 400, body: "There was error processing your update- if you're trying to update the shares outstanding, make sure you follow this URL format: https://api.guardianbrothers.com/update?shares=3000", headers: { 'Access-Control-Allow-Origin': '*' } };
+            }
+        }
+        else {
+            return { statusCode: 400, body: "There was error processing your update- if you're trying to update the shares outstanding, make sure you follow this URL format: https://api.guardianbrothers.com/update?shares=3000", headers: { 'Access-Control-Allow-Origin': '*' } };
+        }
+    }
 };
