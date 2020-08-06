@@ -100,4 +100,26 @@ exports.handler = async(event) => {
             return { statusCode: 400, body: "There was error processing your update- if you're trying to update the shares outstanding, make sure you follow this URL format: https://api.guardianbrothers.com/update?shares=3000", headers: { 'Access-Control-Allow-Origin': '*' } };
         }
     }
+    else if (event.path === '/positions') {
+        let refresh_token = await pool.query("SELECT value FROM configuration WHERE id='refresh_token'");
+        let response1 = await fetch('https://api.tdameritrade.com/v1/oauth2/token', {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: encodeForm({
+                grant_type: 'refresh_token',
+                refresh_token: refresh_token.rows[0].value,
+                redirect_uri: process.env.redirect_uri,
+                client_id: process.env.client_id
+            })
+        });
+        response1 = await response1.json();
+        let response2 = await fetch(`https://api.tdameritrade.com/v1/accounts/${process.env.account_number}?fields=positions`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${response1.access_token}` }
+        });
+        response2 = await response2.json();
+        console.log(response2);
+        response2.securitiesAccount.positions = response2.securitiesAccount.positions.sort((a,b)=>b.marketValue-a.marketValue);
+        return { statusCode: 200, body: JSON.stringify({positions: response2.securitiesAccount.positions, liquidationValue: response2.securitiesAccount.currentBalances.liquidationValue, cashBalance: response2.securitiesAccount.currentBalances.cashBalance}), headers: { 'Access-Control-Allow-Origin': '*' } };
+    }
 };
