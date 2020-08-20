@@ -60,6 +60,9 @@ exports.handler = async(event) => {
         let shares_outstanding = await pool.query("SELECT value FROM configuration WHERE id='shares_outstanding'");
         try {
             let response3 = await pool.query('INSERT INTO liquidation_value(value, shares) VALUES($1, $2) RETURNING *', [response2.securitiesAccount.currentBalances.liquidationValue, parseFloat(shares_outstanding.rows[0].value)]);
+
+            await refreshStockData(response1.access_token);
+
             return { statusCode: 200, body: JSON.stringify(response3.rows), headers: { 'Access-Control-Allow-Origin': '*' } };
         }
         catch (err) {
@@ -118,8 +121,71 @@ exports.handler = async(event) => {
             headers: { Authorization: `Bearer ${response1.access_token}` }
         });
         response2 = await response2.json();
-        console.log(response2);
-        response2.securitiesAccount.positions = response2.securitiesAccount.positions.sort((a,b)=>b.marketValue-a.marketValue);
-        return { statusCode: 200, body: JSON.stringify({positions: response2.securitiesAccount.positions, liquidationValue: response2.securitiesAccount.currentBalances.liquidationValue, cashBalance: response2.securitiesAccount.currentBalances.cashBalance}), headers: { 'Access-Control-Allow-Origin': '*' } };
+        //console.log(response2);
+        let positionsOrdered = response2.securitiesAccount.positions.sort((a, b) => b.marketValue - a.marketValue);
+        /*
+            for (let obj of positionsOrdered) {
+                let response3 = await fetch(`https://api.tdameritrade.com/v1/instruments?apikey=JXCRKTH2PS6GI5GCPNAO2OORPWIGHTYY&projection=fundamental&symbol=${obj.instrument.symbol}`, {
+                    method: "GET",
+                    headers: { Authorization: `Bearer ${response1.access_token}` }
+                });
+                response3 = await response3.json();
+                //console.log(response3);
+                obj.marketCap = response3[obj.instrument.symbol].fundamental.marketCap;
+            }
+        */
+        let databaseStocks = await pool.query("SELECT * FROM stock");
+        
+        for (let obj of positionsOrdered) {
+            let findStock = databaseStocks.rows.filter(innerObj=> innerObj.id===obj.instrument.symbol)[0];
+            obj.marketCap = findStock.market_cap;
+            obj.sector = findStock.sector;
+            obj.name = findStock.name;
+        }
+        return { statusCode: 200, body: JSON.stringify({ positions: response2.securitiesAccount.positions, liquidationValue: response2.securitiesAccount.currentBalances.liquidationValue, cashBalance: response2.securitiesAccount.currentBalances.cashBalance }), headers: { 'Access-Control-Allow-Origin': '*' } };
     }
+    else if (event.path === '/refreshstocks') {
+        let refresh_token = await pool.query("SELECT value FROM configuration WHERE id='refresh_token'");
+        let response1 = await fetch('https://api.tdameritrade.com/v1/oauth2/token', {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: encodeForm({
+                grant_type: 'refresh_token',
+                refresh_token: refresh_token.rows[0].value,
+                redirect_uri: process.env.redirect_uri,
+                client_id: process.env.client_id
+            })
+        });
+        response1 = await response1.json();
+        await refreshStockData(response1.access_token);
+        return { statusCode: 200, body: "success!", headers: { 'Access-Control-Allow-Origin': '*' } };
+    }
+};
+
+let refreshStockData = async(access_token) => {
+    //cool, now we want to keep track of the names, marketcaps, and sectors for each stock in the portfolio
+    let positions = await fetch(`https://api.tdameritrade.com/v1/accounts/${process.env.account_number}?fields=positions`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${access_token}` }
+    });
+    positions = await positions.json();
+    for (let obj of positions.securitiesAccount.positions) {
+        let marketCap = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/marketcap/number?api_key=${process.env.intrinio}`, {
+            method: "GET"
+        });
+        marketCap = await marketCap.json();
+
+        let sector = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/sector/text?api_key=${process.env.intrinio}`, {
+            method: "GET"
+        });
+        sector = await sector.json();
+
+        let name = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/name/text?api_key=${process.env.intrinio}`, {
+            method: "GET"
+        });
+        name = await name.json();
+
+        await pool.query("INSERT INTO stock (id, name, market_cap, sector) VALUES($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING;", [obj.instrument.symbol, name, marketCap, sector]);
+    }
+    return true;
 };
