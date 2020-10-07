@@ -14,7 +14,7 @@ function encodeForm(data) {
 }
 
 exports.handler = async(event) => {
-    console.log("BEGIN guardianbrothers: ", event);
+    console.log("BEGIN guardianbrothers: ", { path: event.path, httpMethod: event.httpMethod, body: event.body, queryStringParameters: event.queryStringParameters });
     if (event.path === '/callback') {
         let response1 = await fetch('https://api.tdameritrade.com/v1/oauth2/token', {
             method: "POST",
@@ -135,12 +135,19 @@ exports.handler = async(event) => {
             }
         */
         let databaseStocks = await pool.query("SELECT * FROM stock");
-        
+
         for (let obj of positionsOrdered) {
-            let findStock = databaseStocks.rows.filter(innerObj=> innerObj.id===obj.instrument.symbol)[0];
-            obj.marketCap = findStock.market_cap;
-            obj.sector = findStock.sector;
-            obj.name = findStock.name;
+            let findStock = databaseStocks.rows.filter(innerObj => innerObj.id === obj.instrument.symbol)[0];
+            if (findStock) {
+                obj.marketCap = findStock.market_cap;
+                obj.sector = findStock.sector;
+                obj.name = findStock.name;
+                obj.industry = findStock.industry;
+                obj.peRatio = findStock.pe_ratio;
+                obj.dividendYield = findStock.dividend_yield;
+                obj.priceBookRatio = findStock.price_book_ratio;
+                obj.beta = findStock.beta;
+            }
         }
         return { statusCode: 200, body: JSON.stringify({ positions: response2.securitiesAccount.positions, liquidationValue: response2.securitiesAccount.currentBalances.liquidationValue, cashBalance: response2.securitiesAccount.currentBalances.cashBalance }), headers: { 'Access-Control-Allow-Origin': '*' } };
     }
@@ -170,22 +177,100 @@ let refreshStockData = async(access_token) => {
     });
     positions = await positions.json();
     for (let obj of positions.securitiesAccount.positions) {
-        let marketCap = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/marketcap/number?api_key=${process.env.intrinio}`, {
-            method: "GET"
-        });
-        marketCap = await marketCap.json();
+        let marketCap = 0;
+        try {
+            marketCap = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/marketcap/number?api_key=${process.env.intrinio}`, {
+                method: "GET"
+            });
+            marketCap = await marketCap.json();
+            if (typeof marketCap !== 'number') { marketCap = 0; }
+        }
+        catch (err) {
+            console.log(err);
+        }
 
-        let sector = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/sector/text?api_key=${process.env.intrinio}`, {
-            method: "GET"
-        });
-        sector = await sector.json();
+        let sector = "Other";
+        try {
+            sector = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/sector/text?api_key=${process.env.intrinio}`, {
+                method: "GET"
+            });
+            sector = await sector.json();
+        }
+        catch (err) {
+            console.log(err);
+        }
 
-        let name = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/name/text?api_key=${process.env.intrinio}`, {
-            method: "GET"
-        });
-        name = await name.json();
+        let name = obj.instrument.symbol;
+        try {
+            name = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/name/text?api_key=${process.env.intrinio}`, {
+                method: "GET"
+            });
+            name = await name.json();
+        }
+        catch (err) {
+            console.log(err);
+        }
 
-        await pool.query("INSERT INTO stock (id, name, market_cap, sector) VALUES($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING;", [obj.instrument.symbol, name, marketCap, sector]);
+        let industry = "Other";
+        try {
+            industry = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/industry_category/text?api_key=${process.env.intrinio}`, {
+                method: "GET"
+            });
+            industry = await industry.json();
+        }
+        catch (err) {
+            console.log(err);
+        }
+
+        let peRatio = 0;
+        try {
+            peRatio = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/pricetoearnings/number?api_key=${process.env.intrinio}`, {
+                method: "GET"
+            });
+            peRatio = await peRatio.json();
+            if (typeof peRatio !== 'number') { peRatio = 0; }
+        }
+        catch (err) {
+            console.log(err);
+        }
+
+        let dividendYield = 0;
+        try {
+            dividendYield = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/dividendyield/number?api_key=${process.env.intrinio}`, {
+                method: "GET"
+            });
+            dividendYield = await dividendYield.json();
+            if (typeof dividendYield !== 'number') { dividendYield = 0; }
+        }
+        catch (err) {
+            console.log(err);
+        }
+
+        let priceBookRatio = 0;
+        try {
+            priceBookRatio = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/pricetobook/number?api_key=${process.env.intrinio}`, {
+                method: "GET"
+            });
+            priceBookRatio = await priceBookRatio.json();
+            if (typeof priceBookRatio !== 'number') { priceBookRatio = 0; }
+        }
+        catch (err) {
+            console.log(err);
+        }
+
+        let beta = 0;
+        try {
+            beta = await fetch(`https://api-v2.intrinio.com/securities/${obj.instrument.symbol}/data_point/beta/number?api_key=${process.env.intrinio}`, {
+                method: "GET"
+            });
+            beta = await beta.json();
+            if (typeof beta !== 'number') { beta = 0; }
+        }
+        catch (err) {
+            console.log(err);
+        }
+
+        await pool.query("INSERT INTO stock (id, name, market_cap, sector, industry, pe_ratio, dividend_yield, price_book_ratio, beta) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING;", [obj.instrument.symbol, name, marketCap, sector, industry, peRatio, dividendYield, priceBookRatio, beta]);
     }
     return true;
 };
