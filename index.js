@@ -145,7 +145,7 @@ exports.handler = async(event) => {
                 obj.industry = findStock.industry;
                 obj.peRatio = findStock.pe_ratio;
                 obj.dividendYield = findStock.dividend_yield;
-                obj.priceBookRatio = findStock.price_book_ratio;
+                obj.priceBookRatio = findStock.price_book_rio;
                 obj.beta = findStock.beta;
             }
         }
